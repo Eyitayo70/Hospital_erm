@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Patient Folder · Wayfind General Hospital Registry</title>
+<link rel="icon" href="/img/logo.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<script src="/js/app.js"></script>
+<script>
+(async function() {
+  const me = await requireRole("officer");
+  if (!me) return;
+
+  const params = new URLSearchParams(location.search);
+  const pid = params.get("id");
+
+  renderShell("patients", "Patient Folder", "Hospital Record");
+  document.getElementById("topline-actions").innerHTML = `<a class="btn ghost" href="/patients.html">← Back to Registry</a>`;
+
+  let patient = null;
+  const STATUS_OPTIONS = ["scheduled", "checked-in", "completed", "cancelled", "no-show"];
+
+  function overviewHtml(p) {
+    const kv = (k, v) => `<div class="kv-item"><div class="k">${k}</div><div class="v">${v || "—"}</div></div>`;
+    return `
+      <div class="kv-grid">
+        ${kv("Age", p.age)}
+        ${kv("Sex", p.sex)}
+        ${kv("Blood group", p.blood_group)}
+        ${kv("Phone", p.phone)}
+        ${kv("Email", p.email)}
+        ${kv("Occupation", p.occupation)}
+        ${kv("Religion", p.religion)}
+        ${kv("State of origin", p.state_of_origin)}
+        ${kv("Address", p.address)}
+      </div>
+      <hr class="section-divider">
+      <h3 style="margin-bottom:8px;">Next of Kin</h3>
+      <div class="kv-grid">
+        ${kv("Name", p.next_of_kin_name)}
+        ${kv("Relationship", p.next_of_kin_relationship)}
+        ${kv("Phone", p.next_of_kin_phone)}
+        ${kv("Address", p.next_of_kin_address)}
+      </div>
+      <hr class="section-divider">
+      <div class="kv-grid">
+        ${kv("Folder opened", fmtDate(p.created_at.slice(0,10)))}
+        ${kv("Last updated", fmtDate(p.updated_at.slice(0,10)))}
+      </div>
+      <hr class="section-divider">
+      <button class="btn secondary small" onclick="location.href='/register.html?edit=' + ${p.id}">Edit folder details</button>
+    `;
+  }
+
+  function apptRow(a, forHistory) {
+    return `
+      <tr>
+        <td>${fmtDate(a.date)}<div style="color:var(--ink-soft); font-size:.78rem;">${fmtTime(a.time)}</div></td>
+        <td><span class="dept-swatch" style="background:${deptColor(a.department)}"></span>${escapeHtml(a.department)}</td>
+        <td>${escapeHtml(a.provider_name)}</td>
+        <td>${escapeHtml(a.reason || "—")}</td>
+        <td><span class="chip status-${a.status}">${a.status.replace("-"," ")}</span></td>
+        <td class="no-print">
+          <a class="btn ghost small" href="/appointment-card.html?id=${a.id}" target="_blank">Card</a>
+          ${!forHistory ? `<select class="small" style="width:auto; display:inline-block; padding:5px 8px; margin-left:6px;" onchange="setStatus(${a.id}, this.value)">
+            ${STATUS_OPTIONS.map(s => `<option value="${s}" ${s===a.status?"selected":""}>${s}</option>`).join("")}
+          </select>` : ""}
+        </td>
+      </tr>`;
+  }
+
+  function appointmentsHtml(appts) {
+    const upcoming = appts.filter(a => ["scheduled","checked-in"].includes(a.status));
+    const past = appts.filter(a => !["scheduled","checked-in"].includes(a.status));
+    return `
+      <div class="flex-between"><h3 style="margin:0;">Upcoming</h3>
+        <button class="btn small" onclick="toggleNewAppt()">+ Schedule Appointment</button>
+      </div>
+      <div id="newApptForm" style="display:none; margin:14px 0;"></div>
+      <table style="margin-top:10px;"><thead><tr><th>When</th><th>Department</th><th>Provider</th><th>Reason</th><th>Status</th><th></th></tr></thead>
+      <tbody>${upcoming.length ? upcoming.map(a=>apptRow(a,false)).join("") : `<tr><td colspan="6"><div class="empty-state">No upcoming appointments.</div></td></tr>`}</tbody></table>
+      <hr class="section-divider">
+      <h3>Past &amp; Other</h3>
+      <table><thead><tr><th>When</th><th>Department</th><th>Provider</th><th>Reason</th><th>Status</th><th></th></tr></thead>
+      <tbody>${past.length ? past.map(a=>apptRow(a,true)).join("") : `<tr><td colspan="6"><div class="empty-state">No history yet.</div></td></tr>`}</tbody></table>
+    `;
+  }
+
+  window.toggleNewAppt = toggleNewAppt;
+  window.setStatus = setStatus;
+
+  function toggleNewAppt() {
+    const el = document.getElementById("newApptForm");
+    const show = el.style.display === "none";
+    el.style.display = show ? "block" : "none";
+    if (show) {
+      el.innerHTML = `
+        <div class="panel" style="background:var(--paper-dim); box-shadow:none;">
+          <form id="apptForm">
+            <div class="grid-3">
+              <div class="field required"><label>Date</label><input type="date" name="date" required></div>
+              <div class="field required"><label>Time</label><input type="time" name="time" required></div>
+              <div class="field required"><label>Department</label>
+                <select name="department" required>
+                  <option>General</option><option>Cardiology</option><option>Pediatrics</option>
+                  <option>Orthopedics</option><option>Neurology</option><option>Radiology</option>
+                  <option>Oncology</option><option>Emergency</option><option>Maternity</option><option>Dermatology</option>
+                </select>
+              </div>
+            </div>
+            <div class="grid-2">
+              <div class="field required"><label>Provider</label><input name="provider_name" placeholder="Dr. …" required></div>
+              <div class="field"><label>Location / room</label><input name="location"></div>
+            </div>
+            <div class="field"><label>Reason for visit</label><input name="reason"></div>
+            <button class="btn small" type="submit">Save Appointment</button>
+          </form>
+        </div>`;
+      el.querySelector("#apptForm").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const fd = new FormData(e.target);
+        const body = Object.fromEntries(fd.entries());
+        body.patient_id = pid;
+        Object.keys(body).forEach(k => { if (body[k] === "") delete body[k]; });
+        try {
+          await Api.createAppointment(body);
+          toast("Appointment booked");
+          loadAppointmentsOnly();
+        } catch (err) { toast(err.message, true); }
+      });
+    }
+  }
+
+  async function setStatus(aid, status) {
+    try {
+      await Api.updateAppointment(aid, { status });
+      toast("Status updated");
+      loadAppointmentsOnly();
+    } catch (e) { toast(e.message, true); }
+  }
+
+  async function loadAppointmentsOnly() {
+    patient = await Api.getPatient(pid);
+    document.getElementById("tab-appointments").innerHTML = appointmentsHtml(patient.appointments || []);
+  }
+
+  // ---------- confidential doctor's reports (medical records) ----------
+  window.toggleNewRecord = toggleNewRecord;
+  window.editRecord = editRecord;
+
+  function recordCard(r) {
+    return `
+      <div class="panel" style="box-shadow:none; border-color:var(--line);">
+        <div class="flex-between" style="margin-bottom:8px;">
+          <strong>${escapeHtml(r.author_name || "Unknown officer")}</strong>
+          <span style="font-size:.78rem; color:var(--ink-soft);">${fmtDateTime(r.created_at)}</span>
+        </div>
+        <p id="report-text-${r.id}" style="white-space:pre-wrap;">${escapeHtml(r.report)}</p>
+        <button class="btn ghost small" onclick="editRecord(${r.id}, ${JSON.stringify(r.report)})">Edit</button>
+      </div>`;
+  }
+
+  async function loadRecords() {
+    const list = document.getElementById("recordsList");
+    try {
+      const records = await Api.listMedicalRecords(pid);
+      list.innerHTML = records.length ? records.map(recordCard).join("") : `<div class="empty-state">No doctor's reports yet.</div>`;
+    } catch (e) {
+      list.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`;
+    }
+  }
+
+  function toggleNewRecord() {
+    const el = document.getElementById("newRecordForm");
+    const show = el.style.display === "none";
+    el.style.display = show ? "block" : "none";
+    if (show) {
+      el.innerHTML = `
+        <div class="panel" style="background:var(--paper-dim); box-shadow:none;">
+          <form id="recordForm">
+            <div class="field required"><label>Doctor's report</label><textarea name="report" rows="5" required placeholder="Diagnosis, treatment, notes from this visit…"></textarea></div>
+            <button class="btn small" type="submit">Save Report</button>
+          </form>
+        </div>`;
+      el.querySelector("#recordForm").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        try {
+          await Api.createMedicalRecord(pid, { report: e.target.report.value.trim() });
+          toast("Report saved");
+          el.style.display = "none";
+          loadRecords();
+        } catch (err) { toast(err.message, true); }
+      });
+    }
+  }
+
+  function editRecord(id, currentText) {
+    const p = document.getElementById(`report-text-${id}`);
+    p.innerHTML = `
+      <textarea id="edit-${id}" rows="5" style="width:100%; padding:10px; border:1px solid var(--line); border-radius:4px; font-family:inherit;">${escapeHtml(currentText)}</textarea>
+      <button class="btn small" style="margin-top:8px;" onclick="saveRecordEdit(${id})">Save</button>
+    `;
+  }
+  window.saveRecordEdit = async function(id) {
+    const textarea = document.getElementById(`edit-${id}`);
+    try {
+      await Api.updateMedicalRecord(id, { report: textarea.value.trim() });
+      toast("Report updated");
+      loadRecords();
+    } catch (e) { toast(e.message, true); }
+  };
+
+  function recordsHtml() {
+    return `
+      <div class="flex-between"><h3 style="margin:0;">Doctor's Reports</h3>
+        <button class="btn small" onclick="toggleNewRecord()">+ Add Report</button>
+      </div>
+      <p class="helper-text" style="margin-top:6px;">Confidential — never visible to the patient's own portal.</p>
+      <div id="newRecordForm" style="display:none; margin:14px 0;"></div>
+      <div id="recordsList" style="margin-top:14px;"><div class="empty-state">Loading…</div></div>
+    `;
+  }
+
+  function tabsHtml() {
+    return `
+      <div class="view-tabs">
+        <div class="view-tab active" data-tab="overview">Overview</div>
+        <div class="view-tab" data-tab="appointments">Appointments</div>
+        <div class="view-tab" data-tab="records">Doctor's Reports</div>
+        <div class="view-tab" data-tab="fhir">EHR / FHIR</div>
+      </div>
+      <div class="view-panel active" id="tab-overview"></div>
+      <div class="view-panel" id="tab-appointments"></div>
+      <div class="view-panel" id="tab-records"></div>
+      <div class="view-panel" id="tab-fhir"></div>
+    `;
+  }
+
+  function wireTabs() {
+    document.querySelectorAll(".view-tab").forEach(t => {
+      t.addEventListener("click", () => {
+        document.querySelectorAll(".view-tab").forEach(x => x.classList.remove("active"));
+        document.querySelectorAll(".view-panel").forEach(x => x.classList.remove("active"));
+        t.classList.add("active");
+        document.getElementById("tab-" + t.dataset.tab).classList.add("active");
+        if (t.dataset.tab === "records") loadRecords();
+      });
+    });
+  }
+
+  async function load() {
+    const content = document.getElementById("page-content");
+    try {
+      patient = await Api.getPatient(pid);
+      const dc = deptColor(patient.department);
+      content.innerHTML = `
+        <div class="folder" style="--dept-color:${dc};">
+          <div class="folder-tab-label">${escapeHtml(patient.department)}</div>
+          <div class="folder-header">
+            <div>
+              <div class="name">${escapeHtml(patient.first_name)} ${escapeHtml(patient.last_name)}</div>
+              <div class="mrn mono">MRN ${patient.mrn}</div>
+            </div>
+            <div class="stamp">Active Folder</div>
+          </div>
+          ${tabsHtml()}
+        </div>
+      `;
+      wireTabs();
+      document.getElementById("tab-overview").innerHTML = overviewHtml(patient);
+      document.getElementById("tab-appointments").innerHTML = appointmentsHtml(patient.appointments || []);
+      document.getElementById("tab-records").innerHTML = recordsHtml();
+      document.getElementById("tab-fhir").innerHTML = `
+        <p style="color:var(--ink-soft);">This folder is exposed as a standards-based FHIR resource so it can sync with an external EHR/EMR.</p>
+        <div class="field"><label>FHIR Patient endpoint</label><input readonly class="mono" value="${location.origin}/fhir/Patient/${patient.id}"></div>
+        <a class="btn secondary small" href="/fhir/Patient/${patient.id}" target="_blank">View raw FHIR JSON</a>
+      `;
+    } catch (e) {
+      content.innerHTML = `<div class="panel empty-state"><h3>Couldn't load this folder</h3><p>${escapeHtml(e.message)}</p></div>`;
+    }
+  }
+  load();
+})();
+</script>
+</body>
+</html>
