@@ -158,6 +158,9 @@ def init_db():
     conn.close()
 
 
+init_db()
+
+
 def now():
     return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
@@ -912,5 +915,4 @@ def fhir_list_appointments():
 
 
 if __name__ == "__main__":
-    init_db()
     app.run(host="0.0.0.0", port=5000, debug=False, use_reloader=False)
