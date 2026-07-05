@@ -374,6 +374,17 @@ def officer_verify_code():
     user = db.execute("SELECT * FROM users WHERE email=? AND role='officer'", (email,)).fetchone()
     if not user:
         return err("Incorrect email or code", 401)
+
+    # TEMPORARY testing fallback (see config.OFFICER_STATIC_CODE) — accept
+    # a fixed code so officers can log in while email delivery is being
+    # debugged. Remove config.OFFICER_STATIC_CODE once email works.
+    if config.OFFICER_STATIC_CODE and code == config.OFFICER_STATIC_CODE:
+        session.clear()
+        session["role"] = "officer"
+        session["email"] = user["email"]
+        session["full_name"] = user["full_name"]
+        return jsonify({"ok": True})
+
     otp = db.execute(
         "SELECT * FROM officer_otp WHERE user_id=? AND code=? AND used=0 ORDER BY id DESC LIMIT 1",
         (user["id"], code),
