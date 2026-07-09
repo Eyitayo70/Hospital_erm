@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Audit Log · Wayfind General Hospital Registry</title>
+<link rel="icon" href="/img/logo.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<script src="/js/app.js"></script>
+<script>
+(async function() {
+  const me = await requireRole("officer");
+  if (!me) return;
+
+  renderShell("audit", "Audit Log", "Accountability & Governance");
+
+  document.getElementById("page-content").innerHTML = `
+    <p class="helper-text">Every login, folder access, edit, and doctor's report action is recorded here — who did what, to which record, and when. Most recent 200 entries.</p>
+    <div class="panel" style="padding:0;">
+      <table>
+        <thead><tr><th>When</th><th>Actor</th><th>Action</th><th>Resource</th><th>Detail</th></tr></thead>
+        <tbody id="rows"><tr><td colspan="5"><div class="empty-state">Loading…</div></td></tr></tbody>
+      </table>
+    </div>
+  `;
+
+  const ACTION_LABELS = {
+    login: "Logged in",
+    create_patient: "Opened folder",
+    view_patient: "Viewed folder",
+    update_patient: "Edited folder",
+    create_medical_record: "Added doctor's report",
+    update_medical_record: "Edited doctor's report",
+    view_medical_records: "Viewed doctor's reports",
+  };
+
+  function row(a) {
+    return `
+      <tr>
+        <td>${fmtDateTime(a.created_at)}</td>
+        <td>${escapeHtml(a.actor_email || a.actor_role)} <span class="chip status-scheduled">${escapeHtml(a.actor_role)}</span></td>
+        <td>${ACTION_LABELS[a.action] || escapeHtml(a.action)}</td>
+        <td>${a.resource_type === "Patient" && a.resource_id ? `<a href="/patient.html?id=${a.resource_id}">${escapeHtml(a.resource_type)} #${a.resource_id}</a>` : escapeHtml(a.resource_type)}</td>
+        <td style="color:var(--ink-soft); font-size:.85rem;">${escapeHtml(a.detail || "")}</td>
+      </tr>`;
+  }
+
+  try {
+    const entries = await Api.auditLog();
+    document.getElementById("rows").innerHTML = entries.length
+      ? entries.map(row).join("")
+      : `<tr><td colspan="5"><div class="empty-state">No activity recorded yet.</div></td></tr>`;
+  } catch (e) {
+    document.getElementById("rows").innerHTML = `<tr><td colspan="5"><div class="empty-state">${escapeHtml(e.message)}</div></td></tr>`;
+  }
+})();
+</script>
+</body>
+</html>

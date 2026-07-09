@@ -151,13 +151,27 @@
   window.toggleNewRecord = toggleNewRecord;
   window.editRecord = editRecord;
 
+  function vitalsSummary(r) {
+    const parts = [];
+    if (r.bp_systolic && r.bp_diastolic) parts.push(`BP ${r.bp_systolic}/${r.bp_diastolic} mmHg`);
+    if (r.temperature_c) parts.push(`Temp ${r.temperature_c}°C`);
+    if (r.pulse_bpm) parts.push(`Pulse ${r.pulse_bpm} bpm`);
+    if (r.respiratory_rate) parts.push(`RR ${r.respiratory_rate}/min`);
+    if (r.weight_kg) parts.push(`Weight ${r.weight_kg} kg`);
+    if (r.height_cm) parts.push(`Height ${r.height_cm} cm`);
+    return parts;
+  }
+
   function recordCard(r) {
+    const vitals = vitalsSummary(r);
     return `
       <div class="panel" style="box-shadow:none; border-color:var(--line);">
         <div class="flex-between" style="margin-bottom:8px;">
           <strong>${escapeHtml(r.author_name || "Unknown officer")}</strong>
           <span style="font-size:.78rem; color:var(--ink-soft);">${fmtDateTime(r.created_at)}</span>
         </div>
+        ${r.diagnosis_label ? `<div class="chip status-checked-in" style="margin-bottom:8px;">${escapeHtml(r.diagnosis_code || "")} ${escapeHtml(r.diagnosis_label)}</div>` : ""}
+        ${vitals.length ? `<div class="helper-text" style="margin:0 0 8px;">${vitals.join(" · ")}</div>` : ""}
         <p id="report-text-${r.id}" style="white-space:pre-wrap;">${escapeHtml(r.report)}</p>
         <button class="btn ghost small" onclick="editRecord(${r.id}, ${JSON.stringify(r.report)})">Edit</button>
       </div>`;
@@ -181,14 +195,54 @@
       el.innerHTML = `
         <div class="panel" style="background:var(--paper-dim); box-shadow:none;">
           <form id="recordForm">
+            <div class="grid-2">
+              <div class="field">
+                <label>Diagnosis (ICD-10)</label>
+                <select name="diagnosis_pick">
+                  <option value="">Select common diagnosis…</option>
+                  ${ICD10_COMMON.map(([code, label]) => `<option value="${code}|||${escapeHtml(label)}">${code} — ${escapeHtml(label)}</option>`).join("")}
+                  <option value="other">Other / type manually…</option>
+                </select>
+              </div>
+              <div class="field"><label>Diagnosis code (if not listed)</label><input name="diagnosis_code" placeholder="e.g. J45.9"></div>
+            </div>
+            <div class="field"><label>Diagnosis description</label><input name="diagnosis_label" placeholder="e.g. Asthma, unspecified"></div>
+
+            <hr class="section-divider">
+            <h4 style="margin-bottom:8px;">Vitals (optional)</h4>
+            <div class="grid-3">
+              <div class="field"><label>BP systolic</label><input type="number" name="bp_systolic" placeholder="120"></div>
+              <div class="field"><label>BP diastolic</label><input type="number" name="bp_diastolic" placeholder="80"></div>
+              <div class="field"><label>Temperature (°C)</label><input type="number" step="0.1" name="temperature_c" placeholder="36.8"></div>
+            </div>
+            <div class="grid-3">
+              <div class="field"><label>Pulse (bpm)</label><input type="number" name="pulse_bpm" placeholder="72"></div>
+              <div class="field"><label>Respiratory rate</label><input type="number" name="respiratory_rate" placeholder="16"></div>
+              <div class="field"><label>Weight (kg)</label><input type="number" step="0.1" name="weight_kg" placeholder="70"></div>
+            </div>
+            <div class="field" style="max-width:160px;"><label>Height (cm)</label><input type="number" step="0.1" name="height_cm" placeholder="170"></div>
+
+            <hr class="section-divider">
             <div class="field required"><label>Doctor's report</label><textarea name="report" rows="5" required placeholder="Diagnosis, treatment, notes from this visit…"></textarea></div>
             <button class="btn small" type="submit">Save Report</button>
           </form>
         </div>`;
+      el.querySelector("[name=diagnosis_pick]").addEventListener("change", (e) => {
+        const form = e.target.form;
+        if (e.target.value && e.target.value !== "other") {
+          const [code, label] = e.target.value.split("|||");
+          form.diagnosis_code.value = code;
+          form.diagnosis_label.value = label;
+        }
+      });
       el.querySelector("#recordForm").addEventListener("submit", async (e) => {
         e.preventDefault();
+        const fd = new FormData(e.target);
+        const body = Object.fromEntries(fd.entries());
+        delete body.diagnosis_pick;
+        Object.keys(body).forEach(k => { if (body[k] === "") delete body[k]; });
         try {
-          await Api.createMedicalRecord(pid, { report: e.target.report.value.trim() });
+          await Api.createMedicalRecord(pid, body);
           toast("Report saved");
           el.style.display = "none";
           loadRecords();
@@ -231,12 +285,34 @@
         <div class="view-tab" data-tab="appointments">Appointments</div>
         <div class="view-tab" data-tab="records">Doctor's Reports</div>
         <div class="view-tab" data-tab="fhir">EHR / FHIR</div>
+        <div class="view-tab" data-tab="activity">Activity</div>
       </div>
       <div class="view-panel active" id="tab-overview"></div>
       <div class="view-panel" id="tab-appointments"></div>
       <div class="view-panel" id="tab-records"></div>
       <div class="view-panel" id="tab-fhir"></div>
+      <div class="view-panel" id="tab-activity"></div>
     `;
+  }
+
+  async function loadActivity() {
+    const el = document.getElementById("tab-activity");
+    el.innerHTML = `<div class="empty-state">Loading…</div>`;
+    try {
+      const entries = await Api.auditLog(pid);
+      el.innerHTML = entries.length ? `
+        <table><thead><tr><th>When</th><th>Officer</th><th>Action</th><th>Detail</th></tr></thead>
+        <tbody>${entries.map(a => `
+          <tr>
+            <td>${fmtDateTime(a.created_at)}</td>
+            <td>${escapeHtml(a.actor_email || a.actor_role)}</td>
+            <td>${escapeHtml(a.action.replace(/_/g," "))}</td>
+            <td style="color:var(--ink-soft); font-size:.85rem;">${escapeHtml(a.detail || "")}</td>
+          </tr>`).join("")}</tbody></table>
+      ` : `<div class="empty-state">No activity recorded for this folder yet.</div>`;
+    } catch (e) {
+      el.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`;
+    }
   }
 
   function wireTabs() {
@@ -247,6 +323,7 @@
         t.classList.add("active");
         document.getElementById("tab-" + t.dataset.tab).classList.add("active");
         if (t.dataset.tab === "records") loadRecords();
+        if (t.dataset.tab === "activity") loadActivity();
       });
     });
   }
@@ -274,9 +351,14 @@
       document.getElementById("tab-appointments").innerHTML = appointmentsHtml(patient.appointments || []);
       document.getElementById("tab-records").innerHTML = recordsHtml();
       document.getElementById("tab-fhir").innerHTML = `
-        <p style="color:var(--ink-soft);">This folder is exposed as a standards-based FHIR resource so it can sync with an external EHR/EMR.</p>
+        <p style="color:var(--ink-soft);">This folder is exposed as standards-based FHIR resources (Patient, Encounter, Condition, Observation) so it can sync with an external EHR/EMR.</p>
         <div class="field"><label>FHIR Patient endpoint</label><input readonly class="mono" value="${location.origin}/fhir/Patient/${patient.id}"></div>
-        <a class="btn secondary small" href="/fhir/Patient/${patient.id}" target="_blank">View raw FHIR JSON</a>
+        <a class="btn secondary small" href="/fhir/Patient/${patient.id}" target="_blank">View raw Patient JSON</a>
+        <hr class="section-divider">
+        <p class="helper-text" style="margin-top:0;">Each doctor's report becomes a FHIR Encounter, with its coded diagnosis as a Condition and vitals as Observations.</p>
+        <a class="btn ghost small" href="/fhir/Encounter" target="_blank">All Encounters</a>
+        <a class="btn ghost small" href="/fhir/Condition" target="_blank">All Conditions</a>
+        <a class="btn ghost small" href="/fhir/Observation" target="_blank">All Observations</a>
       `;
     } catch (e) {
       content.innerHTML = `<div class="panel empty-state"><h3>Couldn't load this folder</h3><p>${escapeHtml(e.message)}</p></div>`;

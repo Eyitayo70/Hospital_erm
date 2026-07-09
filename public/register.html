@@ -71,6 +71,13 @@
         ${editId ? "" : `
         <div class="field"><label>Portal password (optional — set one to give this patient login access)</label><input type="password" name="password" minlength="6"></div>
         <p class="helper-text" style="margin-top:-10px;">Leave email and password blank if this patient won't use the online portal.</p>
+        <div class="field" style="display:flex; align-items:flex-start; gap:10px;">
+          <input type="checkbox" name="consent" id="consentCheck" required style="width:auto; margin-top:4px;">
+          <label for="consentCheck" style="text-transform:none; font-weight:400; font-size:.85rem; color:var(--ink); letter-spacing:0;">
+            I confirm this patient (or their guardian) has consented to Wayfind General Hospital collecting and storing
+            this information for their care and hospital records.
+          </label>
+        </div>
         `}
 
         <div class="flex-between" style="margin-top:10px;">
@@ -98,6 +105,7 @@
     btn.disabled = true;
     const fd = new FormData(e.target);
     const body = Object.fromEntries(fd.entries());
+    if (!editId) body.consent = e.target.consent.checked;
     Object.keys(body).forEach(k => { if (body[k] === "") delete body[k]; });
     try {
       const patient = editId ? await Api.updatePatient(editId, body) : await Api.createPatient(body);

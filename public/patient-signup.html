@@ -62,6 +62,15 @@
         <div class="field"><label>Next of kin's house address</label><input name="next_of_kin_address"></div>
       </div>
 
+      <hr class="section-divider">
+      <div class="field" style="display:flex; align-items:flex-start; gap:10px;">
+        <input type="checkbox" name="consent" id="consentCheck" required style="width:auto; margin-top:4px;">
+        <label for="consentCheck" style="text-transform:none; font-weight:400; font-size:.85rem; color:var(--ink); letter-spacing:0;">
+          I consent to Wayfind General Hospital collecting and storing the information above for the purpose of my care,
+          appointment scheduling, and hospital records, in line with applicable data protection law.
+        </label>
+      </div>
+
       <div class="flex-between" style="margin-top:10px;">
         <span class="helper-text" style="margin:0;">An MRN is assigned automatically.</span>
         <button class="btn" type="submit">Create Folder</button>
@@ -78,6 +87,7 @@ document.getElementById("signupForm").addEventListener("submit", async (e) => {
   btn.disabled = true;
   const fd = new FormData(e.target);
   const body = Object.fromEntries(fd.entries());
+  body.consent = e.target.consent.checked;
   Object.keys(body).forEach(k => { if (body[k] === "") delete body[k]; });
   try {
     await Api.patientSignup(body);
