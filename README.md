@@ -79,7 +79,37 @@ a browser-based model (face-api.js, free but not enterprise-grade) or
 a paid cloud API (AWS Rekognition / Azure Face, needs an account +
 cost), plus real handling of biometric-data consent and storage law in
 your jurisdiction. Officer login is email + password + one-time code
-for now; revisit this once you're past the testing phase.
+for now (plus a temporary static fallback code `123456` while email
+delivery is being debugged — see config.py) — revisit face recognition
+once you're past the testing phase.
+
+## Moving toward WHO / international digital-health alignment
+
+WHO doesn't certify individual apps, but its digital health guidance
+(and standards it endorses, like HL7 FHIR and ICD) point to specific
+concrete practices. What's now included:
+
+- **Informed consent** — patients (or the officer registering a
+  walk-in) must explicitly confirm consent before a folder can be
+  created; recorded with a timestamp (`consent_given`, `consent_at`).
+- **Audit logging** — every login, folder view/edit, and doctor's
+  report action is recorded in `audit_log` with who/what/when. Viewable
+  at `/audit-log.html` (officer only) or per-patient under a folder's
+  "Activity" tab.
+- **ICD-10 diagnosis coding** — doctor's reports can attach a
+  structured diagnosis (a curated common-conditions list, or any
+  code/label typed manually), not just free text.
+- **Vital signs** — blood pressure, temperature, pulse, respiratory
+  rate, weight, and height can be recorded per visit.
+- **Stronger FHIR interoperability** — beyond `Patient`/`Appointment`,
+  the API now exposes proper `Encounter`, `Condition`, and
+  `Observation` resources (with real LOINC codes for vitals and ICD-10
+  for diagnoses), which is the actual technical standard WHO's digital
+  health guidance points toward for health data exchange.
+
+What this still doesn't cover: a lawful-basis/DPIA writeup for NDPR,
+breach notification procedures, and encryption-at-rest for the
+database — those are policy/infra work beyond what code alone solves.
 
 ## Data model
 

@@ -68,6 +68,8 @@ CREATE TABLE IF NOT EXISTS patients (
     next_of_kin_relationship TEXT,
     email TEXT,
     department TEXT DEFAULT 'General',
+    consent_given INTEGER NOT NULL DEFAULT 0,
+    consent_at TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -95,8 +97,29 @@ CREATE TABLE IF NOT EXISTS medical_records (
     author_name TEXT,
     author_email TEXT,
     report TEXT NOT NULL,
+    diagnosis_code TEXT,
+    diagnosis_label TEXT,
+    bp_systolic INTEGER,
+    bp_diastolic INTEGER,
+    temperature_c REAL,
+    pulse_bpm INTEGER,
+    respiratory_rate INTEGER,
+    weight_kg REAL,
+    height_cm REAL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    actor_role TEXT NOT NULL,
+    actor_email TEXT,
+    actor_id INTEGER,
+    action TEXT NOT NULL,
+    resource_type TEXT NOT NULL,
+    resource_id TEXT,
+    detail TEXT,
+    created_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS complaints (
@@ -196,6 +219,23 @@ def log_sync(db, direction, resource_type, resource_id, status, detail):
     db.commit()
 
 
+def log_audit(db, action, resource_type, resource_id=None, detail=None):
+    """Record who did what, to which record, and when — for accountability
+    and to support data-protection audit requirements (NDPR/WHO digital
+    health governance guidance)."""
+    db.execute(
+        """INSERT INTO audit_log (actor_role, actor_email, actor_id, action, resource_type, resource_id, detail, created_at)
+           VALUES (?,?,?,?,?,?,?,?)""",
+        (
+            session.get("role", "anonymous"), session.get("email"),
+            session.get("patient_id") if session.get("role") == "patient" else None,
+            action, resource_type, str(resource_id) if resource_id is not None else None,
+            detail, now(),
+        ),
+    )
+    db.commit()
+
+
 # --------------------------------------------------------------------- auth
 def login_required(role):
     def decorator(fn):
@@ -270,6 +310,8 @@ def patient_signup():
         return err(f"Missing required fields: {', '.join(missing)}")
     if len(password) < 6:
         return err("Password must be at least 6 characters")
+    if not data.get("consent"):
+        return err("You must consent to data collection to open a folder")
 
     db = get_db()
     if db.execute("SELECT id FROM users WHERE email=?", (email,)).fetchone():
@@ -281,9 +323,9 @@ def patient_signup():
     if not fields.get("department"):
         fields["department"] = "General"
     cur = db.execute(
-        f"""INSERT INTO patients (mrn, {", ".join(fields.keys())}, email, created_at, updated_at)
-           VALUES (?,{", ".join(["?"] * len(fields))},?,?,?)""",
-        (mrn, *fields.values(), email, ts, ts),
+        f"""INSERT INTO patients (mrn, {", ".join(fields.keys())}, email, consent_given, consent_at, created_at, updated_at)
+           VALUES (?,{", ".join(["?"] * len(fields))},?,?,?,?,?)""",
+        (mrn, *fields.values(), email, 1, ts, ts, ts),
     )
     patient_id = cur.lastrowid
     db.execute(
@@ -298,6 +340,7 @@ def patient_signup():
     session["email"] = email
     session["patient_id"] = patient_id
     session["full_name"] = f"{data['first_name']} {data['last_name']}"
+    log_audit(db, "create_patient", "Patient", patient_id, "Patient self-registered, consent given")
     patient = db.execute("SELECT * FROM patients WHERE id=?", (patient_id,)).fetchone()
     return jsonify(dict(patient)), 201
 
@@ -316,6 +359,7 @@ def patient_login():
     session["email"] = user["email"]
     session["patient_id"] = user["patient_id"]
     session["full_name"] = user["full_name"]
+    log_audit(db, "login", "Patient", user["patient_id"], "Patient logged in")
     return jsonify({"ok": True, "patient_id": user["patient_id"]})
 
 
@@ -383,6 +427,7 @@ def officer_verify_code():
         session["role"] = "officer"
         session["email"] = user["email"]
         session["full_name"] = user["full_name"]
+        log_audit(db, "login", "Officer", user["id"], "Logged in using static fallback code")
         return jsonify({"ok": True})
 
     otp = db.execute(
@@ -399,6 +444,7 @@ def officer_verify_code():
     session["role"] = "officer"
     session["email"] = user["email"]
     session["full_name"] = user["full_name"]
+    log_audit(db, "login", "Officer", user["id"], "Logged in with emailed code")
     return jsonify({"ok": True})
 
 
@@ -580,6 +626,8 @@ def create_patient():
     missing = [f for f in REQUIRED_PATIENT_FIELDS if not data.get(f)]
     if missing:
         return err(f"Missing required fields: {', '.join(missing)}")
+    if not data.get("consent"):
+        return err("Patient consent must be confirmed before a folder can be opened")
 
     db = get_db()
     email = (data.get("email") or "").strip().lower() or None
@@ -595,9 +643,9 @@ def create_patient():
     if not fields.get("department"):
         fields["department"] = "General"
     cur = db.execute(
-        f"""INSERT INTO patients (mrn, {", ".join(fields.keys())}, email, created_at, updated_at)
-           VALUES (?,{", ".join(["?"] * len(fields))},?,?,?)""",
-        (mrn, *fields.values(), email, ts, ts),
+        f"""INSERT INTO patients (mrn, {", ".join(fields.keys())}, email, consent_given, consent_at, created_at, updated_at)
+           VALUES (?,{", ".join(["?"] * len(fields))},?,?,?,?,?)""",
+        (mrn, *fields.values(), email, 1, ts, ts, ts),
     )
     patient_id = cur.lastrowid
     if email and password:
@@ -608,6 +656,7 @@ def create_patient():
     db.commit()
     patient = db.execute("SELECT * FROM patients WHERE id=?", (patient_id,)).fetchone()
     log_sync(db, "out", "Patient", mrn, "created", "New hospital folder opened by officer")
+    log_audit(db, "create_patient", "Patient", patient_id, "Folder opened by officer, consent confirmed")
     return jsonify(dict(patient)), 201
 
 
@@ -623,6 +672,7 @@ def get_patient(pid):
     ).fetchall()
     result = dict(p)
     result["appointments"] = [dict(a) for a in appts]
+    log_audit(db, "view_patient", "Patient", pid)
     return jsonify(result)
 
 
@@ -643,10 +693,14 @@ def update_patient(pid):
     db.commit()
     updated = db.execute("SELECT * FROM patients WHERE id=?", (pid,)).fetchone()
     log_sync(db, "out", "Patient", updated["mrn"], "updated", "Folder details updated")
+    log_audit(db, "update_patient", "Patient", pid, f"Fields changed: {', '.join(updates.keys())}")
     return jsonify(dict(updated))
 
 
 # ----------------------------------------------------- medical records (confidential)
+VITALS_FIELDS = ["bp_systolic", "bp_diastolic", "temperature_c", "pulse_bpm", "respiratory_rate", "weight_kg", "height_cm"]
+
+
 @app.route("/api/patients/<int:pid>/medical-records", methods=["GET"])
 @login_required("officer")
 def list_medical_records(pid):
@@ -656,6 +710,7 @@ def list_medical_records(pid):
     rows = db.execute(
         "SELECT * FROM medical_records WHERE patient_id=? ORDER BY created_at DESC", (pid,)
     ).fetchall()
+    log_audit(db, "view_medical_records", "Patient", pid, "Doctor's reports viewed")
     return jsonify([dict(r) for r in rows])
 
 
@@ -670,13 +725,25 @@ def create_medical_record(pid):
     if not report:
         return err("Report content cannot be empty")
     ts = now()
+    vitals = {k: (data.get(k) if data.get(k) not in (None, "") else None) for k in VITALS_FIELDS}
     cur = db.execute(
-        """INSERT INTO medical_records (patient_id, appointment_id, author_name, author_email, report, created_at, updated_at)
-           VALUES (?,?,?,?,?,?,?)""",
-        (pid, data.get("appointment_id"), session.get("full_name"), session.get("email"), report, ts, ts),
+        """INSERT INTO medical_records
+           (patient_id, appointment_id, author_name, author_email, report,
+            diagnosis_code, diagnosis_label,
+            bp_systolic, bp_diastolic, temperature_c, pulse_bpm, respiratory_rate, weight_kg, height_cm,
+            created_at, updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (
+            pid, data.get("appointment_id"), session.get("full_name"), session.get("email"), report,
+            data.get("diagnosis_code"), data.get("diagnosis_label"),
+            vitals["bp_systolic"], vitals["bp_diastolic"], vitals["temperature_c"],
+            vitals["pulse_bpm"], vitals["respiratory_rate"], vitals["weight_kg"], vitals["height_cm"],
+            ts, ts,
+        ),
     )
     db.commit()
     row = db.execute("SELECT * FROM medical_records WHERE id=?", (cur.lastrowid,)).fetchone()
+    log_audit(db, "create_medical_record", "Patient", pid, f"Report added (diagnosis: {data.get('diagnosis_label') or 'none coded'})")
     return jsonify(dict(row)), 201
 
 
@@ -691,11 +758,20 @@ def update_medical_record(rid):
     report = (data.get("report") or "").strip()
     if not report:
         return err("Report content cannot be empty")
-    db.execute(
-        "UPDATE medical_records SET report=?, updated_at=? WHERE id=?", (report, now(), rid)
-    )
+    updates = {"report": report}
+    if "diagnosis_code" in data:
+        updates["diagnosis_code"] = data.get("diagnosis_code")
+    if "diagnosis_label" in data:
+        updates["diagnosis_label"] = data.get("diagnosis_label")
+    for k in VITALS_FIELDS:
+        if k in data:
+            updates[k] = data.get(k) if data.get(k) not in ("",) else None
+    updates["updated_at"] = now()
+    set_clause = ", ".join(f"{k}=?" for k in updates)
+    db.execute(f"UPDATE medical_records SET {set_clause} WHERE id=?", (*updates.values(), rid))
     db.commit()
     row = db.execute("SELECT * FROM medical_records WHERE id=?", (rid,)).fetchone()
+    log_audit(db, "update_medical_record", "Patient", existing["patient_id"], f"Report {rid} edited")
     return jsonify(dict(row))
 
 
@@ -923,6 +999,145 @@ def fhir_list_appointments():
     rows = db.execute("SELECT * FROM appointments ORDER BY id").fetchall()
     return jsonify({"resourceType": "Bundle", "type": "searchset", "total": len(rows),
                      "entry": [{"resource": appointment_to_fhir(a)} for a in rows]})
+
+
+# ------------------------------------ FHIR Encounter / Condition / Observation
+# Built from medical_records — each doctor's-report entry is one clinical
+# encounter, optionally with a coded diagnosis (Condition) and vital-sign
+# measurements (Observation), per HL7 FHIR R4 and WHO's push for
+# interoperable, standards-based health data exchange.
+VITAL_LOINC = {
+    "bp_systolic": ("8480-6", "Systolic blood pressure", "mm[Hg]"),
+    "bp_diastolic": ("8462-4", "Diastolic blood pressure", "mm[Hg]"),
+    "temperature_c": ("8310-5", "Body temperature", "Cel"),
+    "pulse_bpm": ("8867-4", "Heart rate", "/min"),
+    "respiratory_rate": ("9279-1", "Respiratory rate", "/min"),
+    "weight_kg": ("29463-7", "Body weight", "kg"),
+    "height_cm": ("8302-2", "Body height", "cm"),
+}
+
+
+def encounter_to_fhir(r):
+    return {
+        "resourceType": "Encounter",
+        "id": str(r["id"]),
+        "status": "finished",
+        "class": {"system": "http://terminology.hl7.org/CodeSystem/v3-ActCode", "code": "AMB", "display": "ambulatory"},
+        "subject": {"reference": f"Patient/{r['patient_id']}"},
+        "period": {"start": r["created_at"]},
+        "reasonCode": [{"text": r["diagnosis_label"]}] if r["diagnosis_label"] else [],
+    }
+
+
+def condition_to_fhir(r):
+    return {
+        "resourceType": "Condition",
+        "id": str(r["id"]),
+        "subject": {"reference": f"Patient/{r['patient_id']}"},
+        "encounter": {"reference": f"Encounter/{r['id']}"},
+        "recordedDate": r["created_at"],
+        "code": {
+            "coding": [{"system": "http://hl7.org/fhir/sid/icd-10", "code": r["diagnosis_code"], "display": r["diagnosis_label"]}],
+            "text": r["diagnosis_label"],
+        },
+    }
+
+
+def observations_from_record(r):
+    obs = []
+    for key, (loinc, display, unit) in VITAL_LOINC.items():
+        value = r[key]
+        if value is None:
+            continue
+        obs.append({
+            "resourceType": "Observation",
+            "id": f"{r['id']}-{key}",
+            "status": "final",
+            "code": {"coding": [{"system": "http://loinc.org", "code": loinc, "display": display}]},
+            "subject": {"reference": f"Patient/{r['patient_id']}"},
+            "encounter": {"reference": f"Encounter/{r['id']}"},
+            "effectiveDateTime": r["created_at"],
+            "valueQuantity": {"value": value, "unit": unit},
+        })
+    return obs
+
+
+@app.route("/fhir/Encounter/<int:rid>", methods=["GET"])
+def fhir_get_encounter(rid):
+    db = get_db()
+    r = db.execute("SELECT * FROM medical_records WHERE id=?", (rid,)).fetchone()
+    if not r:
+        return err("Encounter not found", 404)
+    return jsonify(encounter_to_fhir(r))
+
+
+@app.route("/fhir/Encounter", methods=["GET"])
+def fhir_list_encounters():
+    db = get_db()
+    rows = db.execute("SELECT * FROM medical_records ORDER BY id").fetchall()
+    return jsonify({"resourceType": "Bundle", "type": "searchset", "total": len(rows),
+                     "entry": [{"resource": encounter_to_fhir(r)} for r in rows]})
+
+
+@app.route("/fhir/Condition/<int:rid>", methods=["GET"])
+def fhir_get_condition(rid):
+    db = get_db()
+    r = db.execute("SELECT * FROM medical_records WHERE id=?", (rid,)).fetchone()
+    if not r or not r["diagnosis_code"]:
+        return err("Condition not found", 404)
+    return jsonify(condition_to_fhir(r))
+
+
+@app.route("/fhir/Condition", methods=["GET"])
+def fhir_list_conditions():
+    db = get_db()
+    rows = db.execute("SELECT * FROM medical_records WHERE diagnosis_code IS NOT NULL ORDER BY id").fetchall()
+    return jsonify({"resourceType": "Bundle", "type": "searchset", "total": len(rows),
+                     "entry": [{"resource": condition_to_fhir(r)} for r in rows]})
+
+
+@app.route("/fhir/Observation", methods=["GET"])
+def fhir_list_observations():
+    db = get_db()
+    rows = db.execute("SELECT * FROM medical_records ORDER BY id").fetchall()
+    entries = []
+    for r in rows:
+        entries.extend(observations_from_record(r))
+    return jsonify({"resourceType": "Bundle", "type": "searchset", "total": len(entries),
+                     "entry": [{"resource": o} for o in entries]})
+
+
+@app.route("/fhir/Observation/<string:obs_id>", methods=["GET"])
+def fhir_get_observation(obs_id):
+    try:
+        rid_str, key = obs_id.rsplit("-", 1)
+        rid = int(rid_str)
+    except ValueError:
+        return err("Observation not found", 404)
+    if key not in VITAL_LOINC:
+        return err("Observation not found", 404)
+    db = get_db()
+    r = db.execute("SELECT * FROM medical_records WHERE id=?", (rid,)).fetchone()
+    if not r or r[key] is None:
+        return err("Observation not found", 404)
+    matches = [o for o in observations_from_record(r) if o["id"] == obs_id]
+    return jsonify(matches[0]) if matches else err("Observation not found", 404)
+
+
+# --------------------------------------------------------------------- audit
+@app.route("/api/audit-log", methods=["GET"])
+@login_required("officer")
+def get_audit_log():
+    db = get_db()
+    patient_id = request.args.get("patient_id")
+    sql = "SELECT * FROM audit_log"
+    params = []
+    if patient_id:
+        sql += " WHERE resource_id=? AND resource_type='Patient'"
+        params.append(patient_id)
+    sql += " ORDER BY id DESC LIMIT 200"
+    rows = db.execute(sql, params).fetchall()
+    return jsonify([dict(r) for r in rows])
 
 
 if __name__ == "__main__":
