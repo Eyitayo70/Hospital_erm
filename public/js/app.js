@@ -29,6 +29,9 @@ const Api = {
   createMedicalRecord: (patientId, body) => api(`/api/patients/${patientId}/medical-records`, { method: "POST", body: JSON.stringify(body) }),
   updateMedicalRecord: (id, body) => api(`/api/medical-records/${id}`, { method: "PUT", body: JSON.stringify(body) }),
 
+  // audit log (staff-only)
+  auditLog: (patientId) => api(`/api/audit-log${patientId ? `?patient_id=${patientId}` : ""}`),
+
   // auth
   me: () => api("/api/auth/me"),
   logout: () => api("/api/auth/logout", { method: "POST" }),
@@ -87,6 +90,44 @@ function deptColor(dept) {
   return DEPT_COLORS[dept] || "#1E3A5F";
 }
 
+// ---------- common ICD-10 codes for diagnosis coding ----------
+// A practical starting subset, not exhaustive. Officers can also type a
+// diagnosis label freely if the exact code isn't in this list.
+const ICD10_COMMON = [
+  ["A09", "Diarrhoea and gastroenteritis of presumed infectious origin"],
+  ["B54", "Unspecified malaria"],
+  ["J00", "Acute nasopharyngitis (common cold)"],
+  ["J06.9", "Acute upper respiratory infection, unspecified"],
+  ["J18.9", "Pneumonia, unspecified organism"],
+  ["J45.9", "Asthma, unspecified"],
+  ["A15.9", "Respiratory tuberculosis, unspecified"],
+  ["E10", "Type 1 diabetes mellitus"],
+  ["E11", "Type 2 diabetes mellitus"],
+  ["I10", "Essential (primary) hypertension"],
+  ["I50.9", "Heart failure, unspecified"],
+  ["N39.0", "Urinary tract infection, site not specified"],
+  ["N18.9", "Chronic kidney disease, unspecified"],
+  ["O80", "Single spontaneous delivery"],
+  ["O26.9", "Pregnancy-related condition, unspecified"],
+  ["Z34.9", "Normal pregnancy supervision, unspecified"],
+  ["K29.7", "Gastritis, unspecified"],
+  ["K35.8", "Acute appendicitis, other"],
+  ["S06.0", "Concussion"],
+  ["T14.9", "Injury, unspecified"],
+  ["L23.9", "Allergic contact dermatitis, unspecified"],
+  ["B01.9", "Varicella without complication (chickenpox)"],
+  ["B05.9", "Measles without complication"],
+  ["G43.9", "Migraine, unspecified"],
+  ["F41.9", "Anxiety disorder, unspecified"],
+  ["F32.9", "Depressive episode, unspecified"],
+  ["M54.5", "Low back pain"],
+  ["M79.1", "Myalgia"],
+  ["R50.9", "Fever, unspecified"],
+  ["R51", "Headache"],
+  ["R10.4", "Abdominal pain, unspecified"],
+  ["Z00.0", "General adult medical examination"],
+];
+
 // ---------- toast ----------
 function toast(msg, isError = false) {
   let el = document.getElementById("toast");
@@ -134,6 +175,7 @@ const NAV_ITEMS = [
   { href: "/register.html", label: "New Folder", key: "register" },
   { href: "/appointments.html", label: "Appointments", key: "appointments" },
   { href: "/complaints.html", label: "Complaints", key: "complaints" },
+  { href: "/audit-log.html", label: "Audit Log", key: "audit" },
 ];
 
 function renderShell(activeKey, title, eyebrow) {
