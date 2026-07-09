@@ -23,3 +23,10 @@ SMTP_ADDRESS = os.environ.get("SMTP_ADDRESS", "")
 SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
 
 SENDER_NAME = os.environ.get("SENDER_NAME", "Wayfind General Hospital Registry")
+
+# TEMPORARY testing fallback: if set, this code always works for officer
+# login verification, in addition to the real emailed one-time code.
+# Use this only while debugging email delivery — remove/unset it once
+# real emails are confirmed working, since anyone who learns this code
+# can log in as any officer.
+OFFICER_STATIC_CODE = os.environ.get("OFFICER_STATIC_CODE", "123456")
