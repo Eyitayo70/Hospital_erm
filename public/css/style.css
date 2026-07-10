@@ -41,7 +41,7 @@ p { margin: 0 0 .75em; }
 a { color: var(--teal); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
-.mono { font-family: 'IBM Plex Mono', monospace; letter-spacing: .02em; }
+.mono { font-family: 'IBM Plex Mono', monospace; letter-spacing: .02em; overflow-wrap: break-word; word-break: break-word; }
 
 /* ---------- layout shell ---------- */
 .shell { display: flex; min-height: 100vh; }
@@ -109,21 +109,44 @@ a:hover { text-decoration: underline; }
   display: inline-flex; align-items: center; gap: 8px;
   font-family: 'Inter', sans-serif; font-weight: 600; font-size: .88rem;
   padding: 10px 18px; border-radius: var(--radius); border: 1px solid transparent;
-  cursor: pointer; transition: transform .1s, box-shadow .15s, background .15s;
-  background: var(--navy); color: #fff;
+  cursor: pointer; transition: transform .12s ease, box-shadow .15s ease, background .15s ease, opacity .15s ease;
+  background: var(--navy); color: #fff; position: relative;
 }
-.btn:hover { background: var(--navy-deep); text-decoration: none; }
-.btn:active { transform: translateY(1px); }
+.btn:hover { background: var(--navy-deep); text-decoration: none; box-shadow: 0 3px 10px rgba(30,58,95,.25); transform: translateY(-1px); }
+.btn:active { transform: translateY(1px); box-shadow: none; }
 .btn.secondary { background: transparent; color: var(--navy); border-color: var(--navy); }
 .btn.secondary:hover { background: var(--navy); color: #fff; }
 .btn.ghost { background: transparent; color: var(--ink-soft); border-color: var(--line); }
-.btn.ghost:hover { background: var(--paper-dim); }
+.btn.ghost:hover { background: var(--paper-dim); box-shadow: none; transform: none; }
 .btn.danger { background: var(--rust); }
 .btn.danger:hover { background: #8f3a25; }
 .btn.small { padding: 6px 12px; font-size: .78rem; }
-.btn:disabled { opacity: .5; cursor: not-allowed; }
+.btn:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
 
-.field { margin-bottom: 16px; }
+/* Every existing submit handler already does `btn.disabled = true` while a
+   request is in flight — this alone now shows a spinner and hides the label,
+   with no JS changes needed anywhere else. */
+.btn:disabled {
+  opacity: 1; cursor: not-allowed; color: transparent !important; pointer-events: none;
+  transform: none; box-shadow: none;
+}
+.btn:disabled::after {
+  content: ""; position: absolute; left: 50%; top: 50%; width: 15px; height: 15px;
+  margin: -8px 0 0 -8px; border-radius: 50%;
+  border: 2px solid rgba(255,255,255,.4); border-top-color: #fff;
+  animation: btn-spin .6s linear infinite;
+}
+.btn.secondary:disabled::after, .btn.ghost:disabled::after {
+  border: 2px solid rgba(30,58,95,.25); border-top-color: var(--navy);
+}
+@keyframes btn-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .btn { transition: background .15s ease; }
+  .btn:hover { transform: none; }
+  .btn:disabled::after { animation: none; }
+}
+
+.field { margin-bottom: 16px; min-width: 0; }
 .field label { display: block; font-size: .78rem; font-weight: 600; color: var(--ink-soft); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 6px; }
 .field input, .field select, .field textarea {
   width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius);
@@ -141,6 +164,7 @@ a:hover { text-decoration: underline; }
 .panel {
   background: #fff; border: 1px solid var(--line); border-radius: 6px;
   padding: 22px 24px; box-shadow: var(--shadow); margin-bottom: 22px;
+  overflow-wrap: break-word; word-break: break-word;
 }
 
 .stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px,1fr)); gap: 16px; margin-bottom: 26px; }
@@ -176,7 +200,7 @@ a:hover { text-decoration: underline; }
   color: #fff; text-transform: uppercase; letter-spacing: .06em;
 }
 .folder-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; margin-bottom: 14px; }
-.folder-header .name { font-size: 1.5rem; }
+.folder-header .name { font-size: 1.5rem; overflow-wrap: break-word; word-break: break-word; max-width: 100%; }
 .folder-header .mrn { font-size: .82rem; color: var(--ink-soft); }
 .folder-header .stamp {
   font-family: 'IBM Plex Mono', monospace; font-weight: 600; font-size: .72rem;
@@ -185,8 +209,9 @@ a:hover { text-decoration: underline; }
 }
 
 .kv-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 14px 22px; margin-top: 10px; }
+.kv-grid .kv-item { min-width: 0; }
 .kv-grid .kv-item .k { font-size: .68rem; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-soft); font-weight: 600; }
-.kv-grid .kv-item .v { font-size: .94rem; margin-top: 2px; }
+.kv-grid .kv-item .v { font-size: .94rem; margin-top: 2px; overflow-wrap: break-word; word-break: break-word; }
 
 /* folder view tabs */
 .view-tabs { display: flex; gap: 4px; border-bottom: 2px solid var(--line); margin-bottom: 20px; flex-wrap: wrap; }
@@ -201,15 +226,24 @@ a:hover { text-decoration: underline; }
 
 /* ---------- tables ---------- */
 table { width: 100%; border-collapse: collapse; }
-th { text-align: left; font-size: .7rem; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-soft); font-weight: 700; padding: 10px 12px; border-bottom: 2px solid var(--line); }
-td { padding: 12px; border-bottom: 1px solid var(--line); font-size: .9rem; vertical-align: middle; }
+th { text-align: left; font-size: .7rem; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-soft); font-weight: 700; padding: 10px 12px; border-bottom: 2px solid var(--line); overflow-wrap: break-word; }
+td { padding: 12px; border-bottom: 1px solid var(--line); font-size: .9rem; vertical-align: middle; overflow-wrap: break-word; word-break: break-word; }
 tr:hover td { background: var(--paper-dim); }
 .row-link { cursor: pointer; }
+.month-group-header {
+  background: var(--paper-dim) !important; color: var(--navy-deep);
+  font-family: 'Zilla Slab', serif; font-weight: 600; font-size: .82rem;
+  padding: 10px 12px; border-bottom: 2px solid var(--line); border-top: 1px solid var(--line);
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.month-group-row:first-child .month-group-header { border-top: none; }
+.month-group-row:hover .month-group-header { background: var(--paper-dim) !important; }
 
 /* status + department chips */
 .chip {
   display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 20px;
   font-size: .72rem; font-weight: 600; text-transform: capitalize;
+  max-width: 100%; overflow-wrap: break-word; word-break: break-word;
 }
 .chip.status-scheduled { background: var(--teal-light); color: var(--teal); }
 .chip.status-checked-in { background: #FFF0D6; color: #8A5A00; }
@@ -229,6 +263,28 @@ tr:hover td { background: var(--paper-dim); }
 /* empty state */
 .empty-state { text-align: center; padding: 50px 20px; color: var(--ink-soft); }
 .empty-state h3 { color: var(--ink-soft); }
+
+/* ---------- branded loading state ---------- */
+.loader { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 54px 20px; gap: 14px; color: var(--ink-soft); }
+.loader-mark { position: relative; width: 46px; height: 46px; }
+.loader-mark img { width: 100%; height: 100%; display: block; animation: loader-pulse 1.6s ease-in-out infinite; }
+.loader-mark::after {
+  content: ""; position: absolute; inset: -7px; border-radius: 50%;
+  border: 3px solid var(--line); border-top-color: var(--manila-dark);
+  animation: loader-spin 0.85s linear infinite;
+}
+.loader .loader-text { font-family: 'Zilla Slab', serif; font-size: .92rem; letter-spacing: .01em; }
+@keyframes loader-spin { to { transform: rotate(360deg); } }
+@keyframes loader-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
+@media (prefers-reduced-motion: reduce) {
+  .loader-mark img, .loader-mark::after { animation: none; }
+}
+
+/* skeleton rows for table loading states */
+.skel-row td { padding: 14px 12px; }
+.skel-bar { height: 14px; border-radius: 3px; background: linear-gradient(90deg, var(--paper-dim) 25%, #E4DCC2 37%, var(--paper-dim) 63%); background-size: 400% 100%; animation: skel-shimmer 1.4s ease-in-out infinite; }
+@keyframes skel-shimmer { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
+@media (prefers-reduced-motion: reduce) { .skel-bar { animation: none; background: var(--paper-dim); } }
 
 /* search bar */
 .searchbar { display: flex; gap: 10px; margin-bottom: 20px; }
