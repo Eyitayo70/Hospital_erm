@@ -24,10 +24,15 @@
     <div class="panel" style="padding:0;">
       <table>
         <thead><tr><th>MRN</th><th>Patient</th><th>Age</th><th>Sex</th><th>Department</th><th>Phone</th><th>Folder opened</th></tr></thead>
-        <tbody id="rows"><tr><td colspan="7"><div class="empty-state">Loading…</div></td></tr></tbody>
+        <tbody id="rows"><tr><td colspan="7"><div class="loader"><div class="loader-mark"><img src="/img/logo.svg" alt=""></div><div class="loader-text">Loading…</div></div></td></tr></tbody>
       </table>
     </div>
   `;
+
+  function monthLabel(iso) {
+    const d = new Date(iso.slice(0,10) + "T00:00:00");
+    return d.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+  }
 
   function renderRows(patients) {
     const rows = document.getElementById("rows");
@@ -35,16 +40,26 @@
       rows.innerHTML = `<tr><td colspan="7"><div class="empty-state"><h3>No matching folders</h3><p>Try a different search, or open a new folder.</p></div></td></tr>`;
       return;
     }
-    rows.innerHTML = patients.map(p => `
-      <tr class="row-link" onclick="location.href='/patient.html?id=${p.id}'">
-        <td class="mono">${p.mrn}</td>
-        <td>${escapeHtml(p.first_name)} ${escapeHtml(p.last_name)}</td>
-        <td>${p.age || "—"}</td>
-        <td>${escapeHtml(p.sex || "—")}</td>
-        <td><span class="dept-swatch" style="background:${deptColor(p.department)}"></span>${escapeHtml(p.department)}</td>
-        <td>${escapeHtml(p.phone || "—")}</td>
-        <td>${fmtDate(p.created_at.slice(0,10))}</td>
-      </tr>`).join("");
+    let html = "";
+    let currentGroup = null;
+    for (const p of patients) {
+      const group = monthLabel(p.created_at);
+      if (group !== currentGroup) {
+        html += `<tr class="month-group-row"><td colspan="7" class="month-group-header">${group}</td></tr>`;
+        currentGroup = group;
+      }
+      html += `
+        <tr class="row-link" onclick="location.href='/patient.html?id=${p.id}'">
+          <td class="mono">${p.mrn}</td>
+          <td>${escapeHtml(p.first_name)} ${escapeHtml(p.last_name)}</td>
+          <td>${p.age || "—"}</td>
+          <td>${escapeHtml(p.sex || "—")}</td>
+          <td><span class="dept-swatch" style="background:${deptColor(p.department)}"></span>${escapeHtml(p.department)}</td>
+          <td>${escapeHtml(p.phone || "—")}</td>
+          <td>${fmtDate(p.created_at.slice(0,10))}</td>
+        </tr>`;
+    }
+    rows.innerHTML = html;
   }
 
   async function search(q) {

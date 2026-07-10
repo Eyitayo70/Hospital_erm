@@ -21,6 +21,7 @@
 
   async function load() {
     const content = document.getElementById("page-content");
+    content.innerHTML = loaderHtml("Loading dashboard…");
     try {
       const s = await Api.stats();
 

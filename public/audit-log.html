@@ -17,14 +17,37 @@
   renderShell("audit", "Audit Log", "Accountability & Governance");
 
   document.getElementById("page-content").innerHTML = `
-    <p class="helper-text">Every login, folder access, edit, and doctor's report action is recorded here — who did what, to which record, and when. Most recent 200 entries.</p>
-    <div class="panel" style="padding:0;">
-      <table>
-        <thead><tr><th>When</th><th>Actor</th><th>Action</th><th>Resource</th><th>Detail</th></tr></thead>
-        <tbody id="rows"><tr><td colspan="5"><div class="empty-state">Loading…</div></td></tr></tbody>
-      </table>
+    <p class="helper-text">Every login, folder access, edit, and doctor's report action is recorded here — who did what, to which record, and when. Most recent 200 entries, split by who performed the action.</p>
+    <div class="view-tabs">
+      <div class="view-tab active" data-tab="staff">Staff Activity</div>
+      <div class="view-tab" data-tab="patients">Patient Activity</div>
+    </div>
+    <div class="view-panel active" id="tab-staff">
+      <div class="panel" style="padding:0;">
+        <table>
+          <thead><tr><th>When</th><th>Officer</th><th>Action</th><th>Resource</th><th>Detail</th></tr></thead>
+          <tbody id="rowsStaff"><tr><td colspan="5">${loaderHtml("Loading…")}</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="view-panel" id="tab-patients">
+      <div class="panel" style="padding:0;">
+        <table>
+          <thead><tr><th>When</th><th>Patient</th><th>Action</th><th>Detail</th></tr></thead>
+          <tbody id="rowsPatients"><tr><td colspan="4">${loaderHtml("Loading…")}</td></tr></tbody>
+        </table>
+      </div>
     </div>
   `;
+
+  document.querySelectorAll(".view-tab").forEach(t => {
+    t.addEventListener("click", () => {
+      document.querySelectorAll(".view-tab").forEach(x => x.classList.remove("active"));
+      document.querySelectorAll(".view-panel").forEach(x => x.classList.remove("active"));
+      t.classList.add("active");
+      document.getElementById("tab-" + t.dataset.tab).classList.add("active");
+    });
+  });
 
   const ACTION_LABELS = {
     login: "Logged in",
@@ -36,24 +59,42 @@
     view_medical_records: "Viewed doctor's reports",
   };
 
-  function row(a) {
+  function staffRow(a) {
     return `
       <tr>
         <td>${fmtDateTime(a.created_at)}</td>
-        <td>${escapeHtml(a.actor_email || a.actor_role)} <span class="chip status-scheduled">${escapeHtml(a.actor_role)}</span></td>
+        <td>${escapeHtml(a.actor_email || "—")}</td>
         <td>${ACTION_LABELS[a.action] || escapeHtml(a.action)}</td>
-        <td>${a.resource_type === "Patient" && a.resource_id ? `<a href="/patient.html?id=${a.resource_id}">${escapeHtml(a.resource_type)} #${a.resource_id}</a>` : escapeHtml(a.resource_type)}</td>
+        <td>${a.resource_type === "Patient" && a.resource_id ? `<a href="/patient.html?id=${a.resource_id}">Patient #${a.resource_id}</a>` : escapeHtml(a.resource_type)}</td>
+        <td style="color:var(--ink-soft); font-size:.85rem;">${escapeHtml(a.detail || "")}</td>
+      </tr>`;
+  }
+
+  function patientRow(a) {
+    return `
+      <tr>
+        <td>${fmtDateTime(a.created_at)}</td>
+        <td>${a.resource_id ? `<a href="/patient.html?id=${a.resource_id}">Patient #${a.resource_id}</a>` : escapeHtml(a.actor_email || "—")}</td>
+        <td>${ACTION_LABELS[a.action] || escapeHtml(a.action)}</td>
         <td style="color:var(--ink-soft); font-size:.85rem;">${escapeHtml(a.detail || "")}</td>
       </tr>`;
   }
 
   try {
     const entries = await Api.auditLog();
-    document.getElementById("rows").innerHTML = entries.length
-      ? entries.map(row).join("")
-      : `<tr><td colspan="5"><div class="empty-state">No activity recorded yet.</div></td></tr>`;
+    const staff = entries.filter(a => a.actor_role === "officer");
+    const patients = entries.filter(a => a.actor_role === "patient");
+
+    document.getElementById("rowsStaff").innerHTML = staff.length
+      ? staff.map(staffRow).join("")
+      : `<tr><td colspan="5"><div class="empty-state">No staff activity recorded yet.</div></td></tr>`;
+
+    document.getElementById("rowsPatients").innerHTML = patients.length
+      ? patients.map(patientRow).join("")
+      : `<tr><td colspan="4"><div class="empty-state">No patient activity recorded yet.</div></td></tr>`;
   } catch (e) {
-    document.getElementById("rows").innerHTML = `<tr><td colspan="5"><div class="empty-state">${escapeHtml(e.message)}</div></td></tr>`;
+    document.getElementById("rowsStaff").innerHTML = `<tr><td colspan="5"><div class="empty-state">${escapeHtml(e.message)}</div></td></tr>`;
+    document.getElementById("rowsPatients").innerHTML = `<tr><td colspan="4"><div class="empty-state">${escapeHtml(e.message)}</div></td></tr>`;
   }
 })();
 </script>

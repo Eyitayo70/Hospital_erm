@@ -274,7 +274,7 @@
       </div>
       <p class="helper-text" style="margin-top:6px;">Confidential — never visible to the patient's own portal.</p>
       <div id="newRecordForm" style="display:none; margin:14px 0;"></div>
-      <div id="recordsList" style="margin-top:14px;"><div class="empty-state">Loading…</div></div>
+      <div id="recordsList" style="margin-top:14px;"><div class="loader"><div class="loader-mark"><img src="/img/logo.svg" alt=""></div><div class="loader-text">Loading…</div></div></div>
     `;
   }
 
@@ -297,7 +297,7 @@
 
   async function loadActivity() {
     const el = document.getElementById("tab-activity");
-    el.innerHTML = `<div class="empty-state">Loading…</div>`;
+    el.innerHTML = loaderHtml();
     try {
       const entries = await Api.auditLog(pid);
       el.innerHTML = entries.length ? `
