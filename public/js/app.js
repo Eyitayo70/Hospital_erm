@@ -129,6 +129,11 @@ const ICD10_COMMON = [
 ];
 
 // ---------- toast ----------
+// ---------- branded loading state ----------
+function loaderHtml(text = "Loading…") {
+  return `<div class="loader"><div class="loader-mark"><img src="/img/logo.svg" alt=""></div><div class="loader-text">${escapeHtml(text)}</div></div>`;
+}
+
 function toast(msg, isError = false) {
   let el = document.getElementById("toast");
   if (!el) {
