@@ -48,6 +48,55 @@ On Render (or similar), set `SMTP_ADDRESS` / `SMTP_PASSWORD` /
 `HOSPITAL_SECRET_KEY` as **Environment Variables** in the dashboard
 instead of editing `config.py` — they take priority automatically.
 
+## Making data permanent (Render free Postgres)
+
+Render's free web services don't have persistent disk — the SQLite
+file resets on restarts. This app now auto-switches to PostgreSQL the
+moment a `DATABASE_URL` environment variable is present, with zero
+other changes needed. Locally (no `DATABASE_URL` set), it keeps using
+SQLite exactly as before.
+
+**Set it up:**
+1. On Render: **New +** → **PostgreSQL** → Free tier → Create
+2. Once it's up, copy its **Internal Database URL**
+3. Go to your web service → **Environment** → add:
+   ```
+   DATABASE_URL = <the internal database URL you copied>
+   ```
+4. Redeploy (Manual Deploy → Deploy latest commit)
+
+**Important honest caveat:** I could not test this Postgres path
+myself — this sandbox has no internet access to install/run a real
+Postgres server against it. The SQLite path is fully tested and
+verified working; the Postgres path was built carefully (schema
+translation, connection handling, a compatibility layer so existing
+queries work unchanged) but **please verify it after deploying**:
+- Register a test patient, then manually restart the Render service
+  (Settings → Manual Deploy → Deploy latest commit, or just wait for
+  a free-tier spin-down/wake cycle) and confirm that patient is still
+  there.
+- If you see a database error in the logs, screenshot it — the fix is
+  almost always a one-line change once we can see the actual error.
+- Also note: Render's *free* Postgres tier itself expires after a
+  set period (historically 30–90 days) unless upgraded to a paid
+  database plan — so this solves the "resets on every restart"
+  problem, but isn't indefinitely free forever either.
+
+## Interface
+
+- A branded loading state (the folder mark, pulsing, with a spinning
+  ring) now shows while any page's data is being fetched, instead of
+  a bare "Loading…" string.
+- Every button already shows a spinner automatically while its action
+  is in progress (via the existing `disabled` state), plus a hover
+  lift and press animation — respects `prefers-reduced-motion`.
+- The **Patient Registry** groups folders by the month and year they
+  were opened (most recent first).
+- The **Audit Log** is split into two tabs — Staff Activity and
+  Patient Activity — instead of one mixed list.
+- Fixed a text-overflow bug where long values (addresses, emails,
+  MRNs) could push past their container edge on narrow screens.
+
 ## What a patient fills in at registration
 
 First name, last name, phone, age, sex, blood group, address, state of

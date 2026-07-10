@@ -23,6 +23,16 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import config
 
 DB_PATH = "hospital.db"
+DATABASE_URL = os.environ.get("DATABASE_URL")
+USE_POSTGRES = bool(DATABASE_URL)
+
+if USE_POSTGRES:
+    import psycopg2
+    import psycopg2.extras
+    # Render's DATABASE_URL sometimes uses the old "postgres://" scheme,
+    # which psycopg2 doesn't accept — normalize it.
+    if DATABASE_URL.startswith("postgres://"):
+        DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
 app = Flask(__name__, static_folder="public", static_url_path="")
 app.secret_key = config.SECRET_KEY
@@ -33,11 +43,65 @@ app.config.update(
 
 
 # ---------------------------------------------------------------- database
+class PGCursor:
+    """Wraps a psycopg2 cursor so call sites written for sqlite3 (which
+    returns rows and .lastrowid directly from .execute()) keep working
+    unchanged."""
+    def __init__(self, cur):
+        self._cur = cur
+        self.lastrowid = None
+
+    def fetchone(self):
+        return self._cur.fetchone()
+
+    def fetchall(self):
+        return self._cur.fetchall()
+
+
+class PGConn:
+    """Wraps a psycopg2 connection so the rest of the app can keep calling
+    db.execute(sql_with_question_marks, params) exactly as it did for
+    sqlite3, without touching every call site."""
+    def __init__(self, conn):
+        self.conn = conn
+
+    def execute(self, sql, params=()):
+        pg_sql = sql.replace("?", "%s")
+        is_insert = pg_sql.strip().upper().startswith("INSERT")
+        if is_insert and "RETURNING" not in pg_sql.upper():
+            pg_sql = pg_sql.rstrip().rstrip(";") + " RETURNING id"
+        cur = self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(pg_sql, params)
+        wrapped = PGCursor(cur)
+        if is_insert:
+            try:
+                row = cur.fetchone()
+                wrapped.lastrowid = row["id"] if row else None
+            except Exception:
+                wrapped.lastrowid = None
+        return wrapped
+
+    def executescript(self, script):
+        cur = self.conn.cursor()
+        cur.execute(script)
+        self.conn.commit()
+
+    def commit(self):
+        self.conn.commit()
+
+    def close(self):
+        self.conn.close()
+
+
 def get_db():
     if "db" not in g:
-        g.db = sqlite3.connect(DB_PATH)
-        g.db.row_factory = sqlite3.Row
-        g.db.execute("PRAGMA foreign_keys = ON")
+        if USE_POSTGRES:
+            raw = psycopg2.connect(DATABASE_URL)
+            g.db = PGConn(raw)
+        else:
+            g.db = sqlite3.connect(DB_PATH)
+            g.db.row_factory = sqlite3.Row
+            g.db.execute("PRAGMA foreign_keys = ON")
     return g.db
 
 
@@ -173,12 +237,23 @@ CREATE TABLE IF NOT EXISTS ehr_sync_log (
 );
 """
 
+# Same schema, translated for Postgres: AUTOINCREMENT -> SERIAL, and no
+# PRAGMA needed since Postgres enforces foreign keys by default.
+SCHEMA_PG = SCHEMA.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "SERIAL PRIMARY KEY")
+
 
 def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.executescript(SCHEMA)
-    conn.commit()
-    conn.close()
+    if USE_POSTGRES:
+        conn = psycopg2.connect(DATABASE_URL)
+        cur = conn.cursor()
+        cur.execute(SCHEMA_PG)
+        conn.commit()
+        conn.close()
+    else:
+        conn = sqlite3.connect(DB_PATH)
+        conn.executescript(SCHEMA)
+        conn.commit()
+        conn.close()
 
 
 init_db()
