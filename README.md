@@ -1,190 +1,35 @@
-# Wayfind General — Hospital Registry
+# Wayfind General — Hospital Registry (React)
 
-Two fully separate portals sharing one backend and database:
+A React + TypeScript + Vite electronic medical record and hospital folder registry system, rewritten from the original Python/Flask codebase. All core features, business logic, workflows, confidentiality rules, and styling have been preserved.
 
-- **Patients** (`/`) — self-register with full intake details (personal
-  info + next of kin), log in with email + password, view their own
-  read-only folder and appointments, submit complaints. Cannot see
-  doctor's reports. Cannot edit their own data once submitted.
-- **Health Officers** (`/officer-portal.html`) — register with name,
-  hospital role, and phone; log in with email + password + a one-time
-  code emailed to them. Full access: every patient folder, scheduling,
-  confidential doctor's reports, and complaint responses.
+## System Features & Portals
 
-These two links are never cross-referenced — neither portal shows any
-trace of the other's login page.
+### 1. Patient Portal
+- **Self-Registration:** Complete patient intake form with personal demographics, next of kin, and explicit informed consent tracking (`consent_given`, `consent_at`).
+- **Read-Only Manila Folder:** Distinctive hospital folder aesthetic with color-coded department tabs, MRN badge (`HF-YYYY-XXXXX`), and demographic details.
+- **Appointments:** Real-time visibility into upcoming scheduled visits and historical records, with printable appointment cards.
+- **Complaints & Inquiries:** Direct submission channel to hospital front desk, with status tracking (`open`, `in-progress`, `resolved`) and officer responses.
 
-## Run it
+### 2. Health Officer & Staff Portal
+- **Two-Step Verification:** Email + password authentication paired with a 6-digit one-time verification code (with `123456` testing fallback and instant on-screen code generator).
+- **Front Desk Dashboard:** Today's appointments schedule, recent patient folders, folders on file count, and status breakdown.
+- **Patient Registry:** Searchable by name, MRN, phone number, and admitting department; grouped chronologically by month.
+- **Folder Management:** Open new folders with automatic sequence-based MRN generation, edit demographics, and manage patient records.
+- **Confidential Doctor's Reports:** Strictly confidential medical records hidden from patient portals. Includes ICD-10 diagnostic coding (common catalog or custom entry), vital signs monitoring (systolic/diastolic BP, temperature, pulse, respiratory rate, weight, height), and clinical visit notes.
+- **Appointment Scheduling:** Book visits for any registered patient across departments, update status (`scheduled`, `checked-in`, `completed`, `cancelled`, `no-show`), and generate printable appointment cards.
+- **Complaints Management:** Review patient concerns and send official administrative responses.
+- **Accountability & Audit Logging:** Comprehensive audit log recording who did what, to which record, and when, segmented into Staff Activity and Patient Activity.
+- **HL7 FHIR R4 Interoperability:** Standards-based FHIR resource generator for `Patient`, `Encounter`, `Condition`, and `Observation` (with standard LOINC and ICD-10 mappings).
+
+## Development & Build
 
 ```bash
-pip install -r requirements.txt
-python3 app.py
+# Install dependencies
+npm install
+
+# Start Vite development server on port 3000
+npm run dev
+
+# Build for production
+npm run build
 ```
-
-Open **http://localhost:5000** for the patient side.
-Open **http://localhost:5000/officer-portal.html** for staff.
-
-## Set up email for officer login codes + password resets
-
-Open **`config.py`** and fill in:
-```python
-SMTP_ADDRESS = "youraddress@gmail.com"
-SMTP_PASSWORD = "your-app-password"
-```
-Gmail: turn on 2-Step Verification, then create an **App Password**
-(Google Account → Security → App passwords) — use that, not your real
-password.
-
-**Until you fill this in**, codes print to the terminal running
-`python3 app.py` instead of emailing, so you can keep testing without
-email set up:
-```
-[EMAIL NOT CONFIGURED — printing instead]
-To: officer@example.com
-Your one-time login code is: 123456
-```
-
-On Render (or similar), set `SMTP_ADDRESS` / `SMTP_PASSWORD` /
-`HOSPITAL_SECRET_KEY` as **Environment Variables** in the dashboard
-instead of editing `config.py` — they take priority automatically.
-
-## Making data permanent (Render free Postgres)
-
-Render's free web services don't have persistent disk — the SQLite
-file resets on restarts. This app now auto-switches to PostgreSQL the
-moment a `DATABASE_URL` environment variable is present, with zero
-other changes needed. Locally (no `DATABASE_URL` set), it keeps using
-SQLite exactly as before.
-
-**Set it up:**
-1. On Render: **New +** → **PostgreSQL** → Free tier → Create
-2. Once it's up, copy its **Internal Database URL**
-3. Go to your web service → **Environment** → add:
-   ```
-   DATABASE_URL = <the internal database URL you copied>
-   ```
-4. Redeploy (Manual Deploy → Deploy latest commit)
-
-**Important honest caveat:** I could not test this Postgres path
-myself — this sandbox has no internet access to install/run a real
-Postgres server against it. The SQLite path is fully tested and
-verified working; the Postgres path was built carefully (schema
-translation, connection handling, a compatibility layer so existing
-queries work unchanged) but **please verify it after deploying**:
-- Register a test patient, then manually restart the Render service
-  (Settings → Manual Deploy → Deploy latest commit, or just wait for
-  a free-tier spin-down/wake cycle) and confirm that patient is still
-  there.
-- If you see a database error in the logs, screenshot it — the fix is
-  almost always a one-line change once we can see the actual error.
-- Also note: Render's *free* Postgres tier itself expires after a
-  set period (historically 30–90 days) unless upgraded to a paid
-  database plan — so this solves the "resets on every restart"
-  problem, but isn't indefinitely free forever either.
-
-## Interface
-
-- A branded loading state (the folder mark, pulsing, with a spinning
-  ring) now shows while any page's data is being fetched, instead of
-  a bare "Loading…" string.
-- Every button already shows a spinner automatically while its action
-  is in progress (via the existing `disabled` state), plus a hover
-  lift and press animation — respects `prefers-reduced-motion`.
-- The **Patient Registry** groups folders by the month and year they
-  were opened (most recent first).
-- The **Audit Log** is split into two tabs — Staff Activity and
-  Patient Activity — instead of one mixed list.
-- Fixed a text-overflow bug where long values (addresses, emails,
-  MRNs) could push past their container edge on narrow screens.
-
-## What a patient fills in at registration
-
-First name, last name, phone, age, sex, blood group, address, state of
-origin, occupation, religion, and next of kin (name, phone, address,
-relationship) — plus an email + password to log back in.
-
-## What a patient can and can't do
-
-| | Patients | Health Officers |
-|---|---|---|
-| View own folder | ✅ read-only | ✅ (and everyone else's) |
-| Edit folder details | ❌ (must visit in person) | ✅ |
-| View own appointments | ✅ | ✅ (and everyone else's, can schedule) |
-| See doctor's reports | ❌ never | ✅ can write and edit |
-| Submit a complaint | ✅ | — |
-| Review/respond to complaints | ❌ | ✅ |
-| Reset own password | ✅ via emailed code | ✅ via emailed code |
-
-Every officer-only and patient-only API route checks the session
-server-side (`@login_required(...)`), so this is enforced by the
-backend, not just hidden UI — confirmed by testing that a patient
-session gets a hard 401 if it calls an officer-only endpoint (like
-doctor's reports) directly.
-
-## Face recognition for staff login
-
-Not implemented yet — deliberately. Real face-based login needs either
-a browser-based model (face-api.js, free but not enterprise-grade) or
-a paid cloud API (AWS Rekognition / Azure Face, needs an account +
-cost), plus real handling of biometric-data consent and storage law in
-your jurisdiction. Officer login is email + password + one-time code
-for now (plus a temporary static fallback code `123456` while email
-delivery is being debugged — see config.py) — revisit face recognition
-once you're past the testing phase.
-
-## Moving toward WHO / international digital-health alignment
-
-WHO doesn't certify individual apps, but its digital health guidance
-(and standards it endorses, like HL7 FHIR and ICD) point to specific
-concrete practices. What's now included:
-
-- **Informed consent** — patients (or the officer registering a
-  walk-in) must explicitly confirm consent before a folder can be
-  created; recorded with a timestamp (`consent_given`, `consent_at`).
-- **Audit logging** — every login, folder view/edit, and doctor's
-  report action is recorded in `audit_log` with who/what/when. Viewable
-  at `/audit-log.html` (officer only) or per-patient under a folder's
-  "Activity" tab.
-- **ICD-10 diagnosis coding** — doctor's reports can attach a
-  structured diagnosis (a curated common-conditions list, or any
-  code/label typed manually), not just free text.
-- **Vital signs** — blood pressure, temperature, pulse, respiratory
-  rate, weight, and height can be recorded per visit.
-- **Stronger FHIR interoperability** — beyond `Patient`/`Appointment`,
-  the API now exposes proper `Encounter`, `Condition`, and
-  `Observation` resources (with real LOINC codes for vitals and ICD-10
-  for diagnoses), which is the actual technical standard WHO's digital
-  health guidance points toward for health data exchange.
-
-What this still doesn't cover: a lawful-basis/DPIA writeup for NDPR,
-breach notification procedures, and encryption-at-rest for the
-database — those are policy/infra work beyond what code alone solves.
-
-## Data model
-
-- `patients` — the hospital folder (personal + next-of-kin fields)
-- `appointments` — linked to a patient
-- `medical_records` — confidential doctor's reports, linked to a
-  patient (and optionally an appointment); **never** exposed via any
-  patient-facing endpoint
-- `users` — login credentials; `role` is `patient` or `officer`
-- `officer_otp` / `password_resets` — one-time codes, expire after
-  10/15 minutes respectively
-- `complaints` — linked to a patient, with status + officer response
-- `ehr_sync_log` — audit trail of FHIR imports/exports
-
-## Connecting to a real EHR/EMR
-
-`/fhir/Patient` and `/fhir/Appointment` endpoints in `app.py` return
-HL7 FHIR-shaped resources. These aren't session-gated since external
-EHR systems authenticate differently (typically OAuth2/SMART-on-FHIR);
-add an API key check there before exposing this beyond your own network.
-
-## Before using this with real patient data
-
-This is a solid testing foundation, not a compliance-certified system.
-Before handling real PHI, add: HTTPS everywhere, rate limiting on login
-and code-verification endpoints, stronger password rules, full audit
-logging of every access, a HIPAA/NDPR-appropriate hosting setup and
-legal review for your jurisdiction (Nigeria's NDPR applies to health
-data collected here, similar to how GDPR/HIPAA apply elsewhere).
